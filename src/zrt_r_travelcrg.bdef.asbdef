@@ -5,10 +5,9 @@ with draft;
 define behavior for ZRT_R_Travelcrg alias Travel
 persistent table zrt_travelcrg
 draft table zrt_d_travelcrg
-lock master
+lock master total etag LastChangedAt
 authorization master ( global, instance )
 etag master LocalLastChangedAt
-total etag LastChangedAt
 {
   create;
   update;
@@ -19,7 +18,7 @@ total etag LastChangedAt
   draft action Activate optimized;
   draft action Discard;
   draft action Resume;
-  draft determine action Prepare { validation validateDates; validation validateMandatory; }
+  draft determine action Prepare { validation validateDates; validation validateMandatory; validation Booking~validateMandatory; }
 
   field ( numbering : managed, readonly ) TravelUUID;
   field ( readonly ) OverallStatus, TotalPrice, CreatedBy, CreatedAt, LastChangedBy, LastChangedAt, LocalLastChangedAt;

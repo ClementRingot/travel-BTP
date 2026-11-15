@@ -45,26 +45,25 @@ CLASS lhc_travel IMPLEMENTATION.
   METHOD get_global_authorizations.
     " the activities of ZAO_TRAVL, whatever the agency (checked per instance)
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
-      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
-      result-%create = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      " the SAP BTP trial grants no authorization of its own (D99)
+      result-%create = if_abap_behv=>auth-allowed.
       result-%action-copyTravel = result-%create.
     ENDIF.
-    " a change of the travel: update, its actions and the creation of its bookings
+    " a change of the travel: update and its actions; the creation of its bookings is authorized as an update
     IF requested_authorizations-%update = if_abap_behv=>mk-on OR requested_authorizations-%action-acceptTravel = if_abap_behv=>mk-on
-       OR requested_authorizations-%action-deductDiscount = if_abap_behv=>mk-on OR requested_authorizations-%assoc-_Booking = if_abap_behv=>mk-on.
-      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
-      result-%update = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+       OR requested_authorizations-%action-deductDiscount = if_abap_behv=>mk-on.
+      " the SAP BTP trial grants no authorization of its own (D99)
+      result-%update = if_abap_behv=>auth-allowed.
       result-%action-acceptTravel = result-%update.
       result-%action-deductDiscount = result-%update.
-      result-%assoc-_Booking = result-%update.
     ENDIF.
     IF requested_authorizations-%delete = if_abap_behv=>mk-on.
-      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
-      result-%delete = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      " the SAP BTP trial grants no authorization of its own (D99)
+      result-%delete = if_abap_behv=>auth-allowed.
     ENDIF.
     IF requested_authorizations-%action-copyTravel = if_abap_behv=>mk-on.
-      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
-      result-%action-copyTravel = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      " the SAP BTP trial grants no authorization of its own (D99)
+      result-%action-copyTravel = if_abap_behv=>auth-allowed.
     ENDIF.
   ENDMETHOD.
 
@@ -77,16 +76,15 @@ CLASS lhc_travel IMPLEMENTATION.
       FAILED failed.
 
     LOOP AT travels INTO DATA(travel).
-      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
-      DATA(update) = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
-      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
-      DATA(delete) = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      " the SAP BTP trial grants no authorization of its own (D99)
+      DATA(update) = if_abap_behv=>auth-allowed.
+      " the SAP BTP trial grants no authorization of its own (D99)
+      DATA(delete) = if_abap_behv=>auth-allowed.
       APPEND VALUE #( %tky                    = travel-%tky
                       %update                 = update
                       %delete                 = delete
                       %action-acceptTravel    = update
-                      %action-deductDiscount  = update
-                      %assoc-_Booking         = update ) TO result.
+                      %action-deductDiscount  = update ) TO result.
     ENDLOOP.
   ENDMETHOD.
 

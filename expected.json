@@ -1,0 +1,107 @@
+{
+  "fixture": "fixtures\\travel",
+  "variants": [
+    "draft",
+    "trial"
+  ],
+  "suffix": "CRG",
+  "expect": "every object activates without error",
+  "objects": [
+    {
+      "types": [
+        "CLAS"
+      ],
+      "from": "ZBP_RT_R_TRAVEL",
+      "to": "ZBP_RT_R_TRAVELCRG"
+    },
+    {
+      "types": [
+        "DDLS"
+      ],
+      "from": "ZRT_A_DISCOUNT",
+      "to": "ZRT_A_DISCOUNTCRG"
+    },
+    {
+      "types": [
+        "TABL"
+      ],
+      "from": "ZRT_BOOKING",
+      "to": "ZRT_BOOKINGCRG"
+    },
+    {
+      "types": [
+        "DCLS",
+        "DDLS",
+        "DDLX"
+      ],
+      "from": "ZRT_C_BOOKING",
+      "to": "ZRT_C_BOOKINGCRG"
+    },
+    {
+      "types": [
+        "BDEF",
+        "DCLS",
+        "DDLS",
+        "DDLX"
+      ],
+      "from": "ZRT_C_TRAVEL",
+      "to": "ZRT_C_TRAVELCRG"
+    },
+    {
+      "types": [
+        "TABL"
+      ],
+      "from": "ZRT_D_BOOKING",
+      "to": "ZRT_D_BOOKINGCRG"
+    },
+    {
+      "types": [
+        "TABL"
+      ],
+      "from": "ZRT_D_TRAVEL",
+      "to": "ZRT_D_TRAVELCRG"
+    },
+    {
+      "types": [
+        "DDLS"
+      ],
+      "from": "ZRT_R_BOOKING",
+      "to": "ZRT_R_BOOKINGCRG"
+    },
+    {
+      "types": [
+        "BDEF",
+        "DCLS",
+        "DDLS"
+      ],
+      "from": "ZRT_R_TRAVEL",
+      "to": "ZRT_R_TRAVELCRG"
+    },
+    {
+      "types": [
+        "MSAG",
+        "TABL"
+      ],
+      "from": "ZRT_TRAVEL",
+      "to": "ZRT_TRAVELCRG"
+    },
+    {
+      "types": [
+        "SRVD"
+      ],
+      "from": "ZRT_UI_TRAVEL",
+      "to": "ZRT_UI_TRAVELCRG"
+    },
+    {
+      "types": [
+        "SRVB"
+      ],
+      "from": "ZRT_UI_TRAVEL_O4",
+      "to": "ZRT_UI_TRAVEL_O4CRG"
+    }
+  ],
+  "service": {
+    "binding": "ZRT_UI_TRAVEL_O4CRG",
+    "path": "/sap/opu/odata4/sap/zrt_ui_travel_o4crg/srvd/sap/zrt_ui_travelcrg/0001/"
+  }
+}

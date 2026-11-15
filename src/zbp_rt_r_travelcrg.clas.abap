@@ -1,0 +1,7 @@
+CLASS zbp_rt_r_travelcrg DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zrt_r_travelcrg.
+ENDCLASS.
+
+
+
+CLASS zbp_rt_r_travelcrg IMPLEMENTATION.
+ENDCLASS.

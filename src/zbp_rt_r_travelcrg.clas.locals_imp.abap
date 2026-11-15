@@ -1,0 +1,415 @@
+CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    CONSTANTS:
+      BEGIN OF travel_status,
+        open     TYPE c LENGTH 1 VALUE 'O',
+        accepted TYPE c LENGTH 1 VALUE 'A',
+      END OF travel_status.
+
+    METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
+      IMPORTING REQUEST requested_authorizations FOR Travel RESULT result.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR Travel RESULT result.
+
+    METHODS get_instance_features FOR INSTANCE FEATURES
+      IMPORTING keys REQUEST requested_features FOR Travel RESULT result.
+
+    METHODS acceptTravel FOR MODIFY
+      IMPORTING keys FOR ACTION Travel~acceptTravel RESULT result.
+
+    METHODS deductDiscount FOR MODIFY
+      IMPORTING keys FOR ACTION Travel~deductDiscount RESULT result.
+
+    METHODS copyTravel FOR MODIFY
+      IMPORTING keys FOR ACTION Travel~copyTravel.
+
+    METHODS reCalcTotalPrice FOR MODIFY
+      IMPORTING keys FOR ACTION Travel~reCalcTotalPrice.
+
+    METHODS setStatusOpen FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR Travel~setStatusOpen.
+
+    METHODS calculateTotalPrice FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR Travel~calculateTotalPrice.
+
+    METHODS validateDates FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Travel~validateDates.
+
+    METHODS validateMandatory FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Travel~validateMandatory.
+ENDCLASS.
+
+CLASS lhc_travel IMPLEMENTATION.
+
+  METHOD get_global_authorizations.
+    " the activities of ZAO_TRAVL, whatever the agency (checked per instance)
+    IF requested_authorizations-%create = if_abap_behv=>mk-on.
+      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
+      result-%create = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      result-%action-copyTravel = result-%create.
+    ENDIF.
+    " a change of the travel: update, its actions and the creation of its bookings
+    IF requested_authorizations-%update = if_abap_behv=>mk-on OR requested_authorizations-%action-acceptTravel = if_abap_behv=>mk-on
+       OR requested_authorizations-%action-deductDiscount = if_abap_behv=>mk-on OR requested_authorizations-%assoc-_Booking = if_abap_behv=>mk-on.
+      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
+      result-%update = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      result-%action-acceptTravel = result-%update.
+      result-%action-deductDiscount = result-%update.
+      result-%assoc-_Booking = result-%update.
+    ENDIF.
+    IF requested_authorizations-%delete = if_abap_behv=>mk-on.
+      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
+      result-%delete = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+    ENDIF.
+    IF requested_authorizations-%action-copyTravel = if_abap_behv=>mk-on.
+      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
+      result-%action-copyTravel = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD get_instance_authorizations.
+    " the agency of each travel
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( AgencyID ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels)
+      FAILED failed.
+
+    LOOP AT travels INTO DATA(travel).
+      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
+      DATA(update) = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      sy-subrc = 0. " the SAP BTP trial grants no authorization of its own (D99)
+      DATA(delete) = COND #( WHEN sy-subrc = 0 THEN if_abap_behv=>auth-allowed ELSE if_abap_behv=>auth-unauthorized ).
+      APPEND VALUE #( %tky                    = travel-%tky
+                      %update                 = update
+                      %delete                 = delete
+                      %action-acceptTravel    = update
+                      %action-deductDiscount  = update
+                      %assoc-_Booking         = update ) TO result.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_instance_features.
+    " A travel that is already accepted cannot be accepted again.
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( OverallStatus ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels)
+      FAILED failed.
+
+    result = VALUE #( FOR travel IN travels
+                      ( %tky                 = travel-%tky
+                        %action-acceptTravel = COND #( WHEN travel-OverallStatus = travel_status-accepted
+                                                       THEN if_abap_behv=>fc-o-disabled
+                                                       ELSE if_abap_behv=>fc-o-enabled ) ) ).
+  ENDMETHOD.
+
+  METHOD acceptTravel.
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        UPDATE FIELDS ( OverallStatus )
+        WITH VALUE #( FOR key IN keys
+                      ( %tky          = key-%tky
+                        OverallStatus = travel_status-accepted ) ).
+
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    result = VALUE #( FOR travel IN travels
+                      ( %tky   = travel-%tky
+                        %param = travel ) ).
+
+    reported-travel = VALUE #( FOR travel IN travels
+                               ( %tky = travel-%tky
+                                 %msg = new_message( id       = 'ZRT_TRAVELCRG'
+                                                     number   = '002'
+                                                     severity = if_abap_behv_message=>severity-success
+                                                     v1       = travel-TravelID ) ) ).
+  ENDMETHOD.
+
+  METHOD deductDiscount.
+    " Reduces the booking fee by the percentage given as parameter.
+    DATA travels_for_update TYPE TABLE FOR UPDATE zrt_r_travelcrg\\Travel.
+
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( BookingFee ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    LOOP AT keys INTO DATA(key).
+      IF key-%param-DiscountPercent < 1 OR key-%param-DiscountPercent > 100.
+        APPEND VALUE #( %tky = key-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky = key-%tky
+                        %msg = new_message( id       = 'ZRT_TRAVELCRG'
+                                            number   = '001'
+                                            severity = if_abap_behv_message=>severity-error
+                                            v1       = key-%param-DiscountPercent ) ) TO reported-travel.
+        CONTINUE.
+      ENDIF.
+      READ TABLE travels INTO DATA(travel) WITH KEY TravelUUID = key-TravelUUID.
+      IF sy-subrc = 0.
+        APPEND VALUE #( %tky       = travel-%tky
+                        BookingFee = travel-BookingFee * ( 100 - key-%param-DiscountPercent ) / 100 ) TO travels_for_update.
+      ENDIF.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        UPDATE FIELDS ( BookingFee )
+        WITH travels_for_update.
+
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        ALL FIELDS WITH CORRESPONDING #( travels_for_update )
+      RESULT DATA(updated).
+
+    result = VALUE #( FOR u IN updated
+                      ( %tky   = u-%tky
+                        %param = u ) ).
+  ENDMETHOD.
+
+  METHOD copyTravel.
+    " The copy is a new open travel with the same data and without bookings.
+    DATA copies TYPE TABLE FOR CREATE zrt_r_travelcrg\\Travel.
+
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    LOOP AT keys INTO DATA(key).
+      READ TABLE travels INTO DATA(travel) WITH KEY TravelUUID = key-TravelUUID.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      APPEND VALUE #( %cid         = key-%cid
+                      TravelID     = travel-TravelID
+                      AgencyID     = travel-AgencyID
+                      CustomerID   = travel-CustomerID
+                      BeginDate    = travel-BeginDate
+                      EndDate      = travel-EndDate
+                      BookingFee   = travel-BookingFee
+                      CurrencyCode = travel-CurrencyCode
+                      Description  = |Copy of { travel-Description }| ) TO copies.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        CREATE FIELDS ( TravelID AgencyID CustomerID BeginDate EndDate BookingFee CurrencyCode Description )
+        WITH copies
+      MAPPED DATA(created).
+
+    mapped-travel = created-travel.
+  ENDMETHOD.
+
+  METHOD reCalcTotalPrice.
+    " Total price = booking fee + flight prices of the bookings in the travel currency.
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( BookingFee CurrencyCode ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel BY \_Booking
+        FIELDS ( TravelUUID FlightPrice CurrencyCode ) WITH CORRESPONDING #( travels )
+      RESULT DATA(bookings).
+
+    LOOP AT travels ASSIGNING FIELD-SYMBOL(<travel>).
+      <travel>-TotalPrice = <travel>-BookingFee.
+      " Bookings in another currency are not converted by the reference fixture.
+      LOOP AT bookings INTO DATA(booking)
+           WHERE TravelUUID = <travel>-TravelUUID AND CurrencyCode = <travel>-CurrencyCode.
+        <travel>-TotalPrice = <travel>-TotalPrice + booking-FlightPrice.
+      ENDLOOP.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        UPDATE FIELDS ( TotalPrice )
+        WITH CORRESPONDING #( travels ).
+  ENDMETHOD.
+
+  METHOD setStatusOpen.
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( OverallStatus ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    DELETE travels WHERE OverallStatus IS NOT INITIAL.
+    CHECK travels IS NOT INITIAL.
+
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        UPDATE FIELDS ( OverallStatus )
+        WITH VALUE #( FOR travel IN travels
+                      ( %tky          = travel-%tky
+                        OverallStatus = travel_status-open ) ).
+  ENDMETHOD.
+
+  METHOD calculateTotalPrice.
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        EXECUTE reCalcTotalPrice
+        FROM CORRESPONDING #( keys ).
+  ENDMETHOD.
+
+  METHOD validateDates.
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( BeginDate EndDate ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    LOOP AT travels INTO DATA(travel).
+      IF travel-BeginDate IS INITIAL OR travel-EndDate IS INITIAL.
+        APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky               = travel-%tky
+                        %msg               = new_message_with_text(
+                                               severity = if_abap_behv_message=>severity-error
+                                               text     = 'Begin date and end date are required' )
+                        %element-BeginDate = if_abap_behv=>mk-on
+                        %element-EndDate   = if_abap_behv=>mk-on ) TO reported-travel.
+      ELSEIF travel-EndDate < travel-BeginDate.
+        APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky             = travel-%tky
+                        %msg             = new_message_with_text(
+                                             severity = if_abap_behv_message=>severity-error
+                                             text     = 'End date must not be before begin date' )
+                        %element-EndDate = if_abap_behv=>mk-on ) TO reported-travel.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD validateMandatory.
+    " field ( mandatory ) is only a consumer hint, without runtime check: the check is this
+    " validation (BeginDate and EndDate are checked by validateDates).
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( TravelID AgencyID CustomerID CurrencyCode ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    LOOP AT travels INTO DATA(travel).
+      IF travel-TravelID IS INITIAL.
+        APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky              = travel-%tky
+                        %msg              = new_message_with_text(
+                                              severity = if_abap_behv_message=>severity-error
+                                              text     = 'Travel ID is required' )
+                        %element-TravelID = if_abap_behv=>mk-on ) TO reported-travel.
+      ENDIF.
+      IF travel-AgencyID IS INITIAL.
+        APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky              = travel-%tky
+                        %msg              = new_message_with_text(
+                                              severity = if_abap_behv_message=>severity-error
+                                              text     = 'Agency ID is required' )
+                        %element-AgencyID = if_abap_behv=>mk-on ) TO reported-travel.
+      ENDIF.
+      IF travel-CustomerID IS INITIAL.
+        APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky                = travel-%tky
+                        %msg                = new_message_with_text(
+                                                severity = if_abap_behv_message=>severity-error
+                                                text     = 'Customer ID is required' )
+                        %element-CustomerID = if_abap_behv=>mk-on ) TO reported-travel.
+      ENDIF.
+      IF travel-CurrencyCode IS INITIAL.
+        APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky                  = travel-%tky
+                        %msg                  = new_message_with_text(
+                                                  severity = if_abap_behv_message=>severity-error
+                                                  text     = 'Currency is required' )
+                        %element-CurrencyCode = if_abap_behv=>mk-on ) TO reported-travel.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_booking DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    METHODS calculateTotalPrice FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR Booking~calculateTotalPrice.
+
+    METHODS validateMandatory FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Booking~validateMandatory.
+ENDCLASS.
+
+CLASS lhc_booking IMPLEMENTATION.
+
+  METHOD calculateTotalPrice.
+    " A new, changed or deleted flight price changes the total price of the travel.
+    " New and changed bookings: their travel by the to-parent association.
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Booking BY \_Travel
+        FIELDS ( TravelUUID ) WITH CORRESPONDING #( keys )
+      RESULT DATA(travels)
+      FAILED DATA(not_readable).
+
+    " A deleted booking can no longer be read in the transactional buffer: its travel is read on
+    " the database, where the deletion is only written by the save sequence.
+    LOOP AT not_readable-booking INTO DATA(deleted).
+      SELECT SINGLE FROM zrt_r_bookingcrg
+        FIELDS TravelUUID
+        WHERE BookingUUID = @deleted-BookingUUID
+        INTO @DATA(travel_uuid).
+      IF sy-subrc = 0.
+        APPEND VALUE #( TravelUUID = travel_uuid ) TO travels.
+      ENDIF.
+    ENDLOOP.
+
+    SORT travels BY TravelUUID.
+    DELETE ADJACENT DUPLICATES FROM travels COMPARING TravelUUID.
+
+    MODIFY ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Travel
+        EXECUTE reCalcTotalPrice
+        FROM CORRESPONDING #( travels ).
+  ENDMETHOD.
+
+  METHOD validateMandatory.
+    " field ( mandatory ) is only a consumer hint, without runtime check: the check is this validation.
+    READ ENTITIES OF zrt_r_travelcrg IN LOCAL MODE
+      ENTITY Booking
+        FIELDS ( BookingID CarrierID ConnectionID FlightDate ) WITH CORRESPONDING #( keys )
+      RESULT DATA(bookings).
+
+    LOOP AT bookings INTO DATA(booking).
+      IF booking-BookingID IS INITIAL.
+        APPEND VALUE #( %tky = booking-%tky ) TO failed-booking.
+        APPEND VALUE #( %tky               = booking-%tky
+                        %msg               = new_message_with_text(
+                                               severity = if_abap_behv_message=>severity-error
+                                               text     = 'Booking ID is required' )
+                        %element-BookingID = if_abap_behv=>mk-on ) TO reported-booking.
+      ENDIF.
+      IF booking-CarrierID IS INITIAL.
+        APPEND VALUE #( %tky = booking-%tky ) TO failed-booking.
+        APPEND VALUE #( %tky               = booking-%tky
+                        %msg               = new_message_with_text(
+                                               severity = if_abap_behv_message=>severity-error
+                                               text     = 'Airline is required' )
+                        %element-CarrierID = if_abap_behv=>mk-on ) TO reported-booking.
+      ENDIF.
+      IF booking-ConnectionID IS INITIAL.
+        APPEND VALUE #( %tky = booking-%tky ) TO failed-booking.
+        APPEND VALUE #( %tky                  = booking-%tky
+                        %msg                  = new_message_with_text(
+                                                  severity = if_abap_behv_message=>severity-error
+                                                  text     = 'Flight number is required' )
+                        %element-ConnectionID = if_abap_behv=>mk-on ) TO reported-booking.
+      ENDIF.
+      IF booking-FlightDate IS INITIAL.
+        APPEND VALUE #( %tky = booking-%tky ) TO failed-booking.
+        APPEND VALUE #( %tky                = booking-%tky
+                        %msg                = new_message_with_text(
+                                                severity = if_abap_behv_message=>severity-error
+                                                text     = 'Flight date is required' )
+                        %element-FlightDate = if_abap_behv=>mk-on ) TO reported-booking.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+ENDCLASS.

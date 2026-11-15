@@ -1,0 +1,5 @@
+@EndUserText.label: 'Travels: by agency'
+@MappingRole: true
+define role ZRT_R_TRAVELCRG {
+  grant select on ZRT_R_Travelcrg;
+}

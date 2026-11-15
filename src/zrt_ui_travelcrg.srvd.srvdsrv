@@ -1,0 +1,5 @@
+@EndUserText.label: 'Travel service'
+define service ZRT_UI_TRAVELCRG {
+  expose ZRT_C_Travelcrg  as Travel;
+  expose ZRT_C_Bookingcrg as Booking;
+}

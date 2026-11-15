@@ -1,0 +1,5 @@
+@EndUserText.label: 'Bookings: by the agency of their travel'
+@MappingRole: true
+define role ZRT_C_BOOKINGCRG {
+  grant select on ZRT_C_Bookingcrg;
+}

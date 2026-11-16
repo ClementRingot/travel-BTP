@@ -15,6 +15,7 @@ define root view entity ZRT_C_Travelcrg
       EndDate,
       BookingFee,
       TotalPrice,
+      @Consumption.valueHelpDefinition: [{ entity: { name: 'I_Currency', element: 'Currency' } }]
       CurrencyCode,
       @Search.defaultSearchElement: true
       Description,

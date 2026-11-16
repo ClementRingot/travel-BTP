@@ -35,6 +35,12 @@ etag master LocalLastChangedAt
   validation validateDates on save { create; field BeginDate, EndDate; }
   validation validateMandatory on save { create; field TravelID, AgencyID, CustomerID, CurrencyCode; }
 
+  side effects
+  {
+    field BookingFee affects field TotalPrice;
+    field CurrencyCode affects field TotalPrice;
+  }
+
   mapping for zrt_travelcrg corresponding
   {
     TravelUUID         = travel_uuid;
